@@ -16,68 +16,90 @@ struct ContentView: View {
     @State private var transpose = UserDefaults.standard.object(forKey: SettingsKey.transpose) as? Int ?? 0
     @State private var a4Frequency = UserDefaults.standard.object(forKey: SettingsKey.a4Frequency) as? Int ?? 440
     @State private var keyWidthScale = UserDefaults.standard.object(forKey: SettingsKey.keyWidthScale) as? Double ?? 1.0
+    @State private var outputVolume = UserDefaults.standard.object(forKey: SettingsKey.outputVolume) as? Double ?? 1.0
     @State private var selectedTone = PianoTone(rawValue: UserDefaults.standard.string(forKey: SettingsKey.selectedTone) ?? "") ?? .synth
     @State private var isAdjustingKeyWidth = false
     @State private var keyWidthAdjustmentID = 0
+    @State private var showsAdjustmentPanel = false
 
     var body: some View {
         GeometryReader { geometry in
             let isLandscape = geometry.size.width > geometry.size.height
-            let portraitKeyboardHeight = geometry.size.height * 0.55
-            let bottomBreathingRoom: CGFloat = isLandscape ? 12 : 60
+            let portraitKeyboardHeight = min(geometry.size.height * 0.48, max(260, geometry.size.height - 330))
+            let topPadding: CGFloat = isLandscape ? 12 : 70
+            let bottomBreathingRoom: CGFloat = isLandscape ? 12 : 28
 
-            VStack(spacing: 0) {
-                KeyWidthSlider(
-                    value: $keyWidthScale,
-                    onEditingChanged: { isEditing in
-                        if isEditing {
-                            keyWidthAdjustmentID += 1
-                        }
+            ZStack(alignment: .top) {
+                VStack(spacing: 0) {
+                    AdjustmentPanelToggle(isPresented: $showsAdjustmentPanel)
+                        .padding(.horizontal, isLandscape ? 18 : 14)
+                        .padding(.top, topPadding)
+                        .padding(.bottom, 8)
 
-                        isAdjustingKeyWidth = isEditing
-                    }
-                )
+                    ControlBar(
+                        isKeyboardLocked: $isKeyboardLocked,
+                        transpose: $transpose,
+                        a4Frequency: $a4Frequency,
+                        selectedTone: $selectedTone,
+                        showsMusicButton: isLandscape,
+                        usesIconOnlyPrimaryControls: !isLandscape
+                    )
                     .padding(.horizontal, isLandscape ? 18 : 14)
-                    .padding(.top, isLandscape ? 12 : 64)
-                    .padding(.bottom, 8)
+                    .padding(.bottom, isLandscape ? 10 : 8)
 
-                ControlBar(
-                    isKeyboardLocked: $isKeyboardLocked,
-                    transpose: $transpose,
-                    a4Frequency: $a4Frequency,
-                    selectedTone: $selectedTone,
-                    showsMusicButton: isLandscape,
-                    usesIconOnlyPrimaryControls: !isLandscape
-                )
-                .padding(.horizontal, isLandscape ? 18 : 14)
-                .padding(.bottom, 10)
+                    PianoKeyboardView(
+                        isLocked: isKeyboardLocked,
+                        transpose: transpose,
+                        a4Frequency: a4Frequency,
+                        selectedTone: selectedTone,
+                        keyWidthScale: keyWidthScale,
+                        isAdjustingKeyWidth: isAdjustingKeyWidth,
+                        keyWidthAdjustmentID: keyWidthAdjustmentID,
+                        audioEngine: audioEngine
+                    )
+                        .frame(maxWidth: .infinity)
+                        .frame(height: isLandscape ? nil : portraitKeyboardHeight)
+                        .padding(.horizontal, isLandscape ? 18 : 0)
 
-                PianoKeyboardView(
-                    isLocked: isKeyboardLocked,
-                    transpose: transpose,
-                    a4Frequency: a4Frequency,
-                    selectedTone: selectedTone,
-                    keyWidthScale: keyWidthScale,
-                    isAdjustingKeyWidth: isAdjustingKeyWidth,
-                    keyWidthAdjustmentID: keyWidthAdjustmentID,
-                    audioEngine: audioEngine
-                )
-                    .frame(maxWidth: .infinity)
-                    .frame(height: isLandscape ? nil : portraitKeyboardHeight)
-                    .padding(.horizontal, isLandscape ? 18 : 0)
+                    if !isLandscape {
+                        AppleMusicLaunchButton()
+                            .frame(width: 120, height: 100)
+                            .padding(.top, 27)
+                    }
 
-                if !isLandscape {
-                    AppleMusicLaunchButton()
-                        .frame(width: 120, height: 90)
-                        .padding(.top, 24)
+                    Spacer(minLength: bottomBreathingRoom)
                 }
 
-                Spacer(minLength: bottomBreathingRoom)
+                if showsAdjustmentPanel {
+                    Color.black.opacity(0.001)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            showsAdjustmentPanel = false
+                        }
+
+                    AdjustmentPanel(
+                        keyWidthScale: $keyWidthScale,
+                        outputVolume: $outputVolume,
+                        onKeyWidthEditingChanged: { isEditing in
+                            if isEditing {
+                                keyWidthAdjustmentID += 1
+                            }
+
+                            isAdjustingKeyWidth = isEditing
+                        }
+                    )
+                    .padding(.horizontal, isLandscape ? 18 : 14)
+                    .padding(.top, topPadding + 46)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .zIndex(2)
+                }
             }
             .background(AppColors.background)
             .preferredColorScheme(.dark)
+            .animation(.spring(response: 0.24, dampingFraction: 0.86), value: showsAdjustmentPanel)
             .onAppear {
                 UIScrollView.appearance().showsHorizontalScrollIndicator = false
+                audioEngine.setOutputVolume(outputVolume)
                 audioEngine.prepareSession(transpose: transpose, a4Frequency: a4Frequency)
             }
             .onChange(of: isKeyboardLocked) { _, newValue in
@@ -93,6 +115,10 @@ struct ContentView: View {
             }
             .onChange(of: keyWidthScale) { _, newValue in
                 persist(newValue, forKey: SettingsKey.keyWidthScale)
+            }
+            .onChange(of: outputVolume) { _, newValue in
+                persist(newValue, forKey: SettingsKey.outputVolume)
+                audioEngine.setOutputVolume(newValue)
             }
             .onChange(of: selectedTone) { _, newValue in
                 persist(newValue.rawValue, forKey: SettingsKey.selectedTone)
@@ -133,6 +159,7 @@ private enum SettingsKey {
     static let transpose = "pitchKey.transpose"
     static let a4Frequency = "pitchKey.a4Frequency"
     static let keyWidthScale = "pitchKey.keyWidthScale"
+    static let outputVolume = "pitchKey.outputVolume"
     static let selectedTone = "pitchKey.selectedTone"
 }
 
@@ -161,6 +188,61 @@ private enum PianoTone: String, CaseIterable, Identifiable {
     }
 }
 
+private struct AdjustmentPanelToggle: View {
+    @Binding var isPresented: Bool
+
+    var body: some View {
+        Button {
+            isPresented.toggle()
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 15, weight: .bold))
+
+                Text("Adjust")
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+
+                Spacer(minLength: 0)
+
+                Image(systemName: isPresented ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(AppColors.secondaryText)
+            }
+            .foregroundStyle(AppColors.primaryText)
+            .padding(.horizontal, 12)
+            .frame(height: 38)
+            .background(AppColors.controlSurface, in: RoundedRectangle(cornerRadius: 8))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(AppColors.whiteKeyBorder.opacity(0.45), lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Adjust keyboard and volume")
+    }
+}
+
+private struct AdjustmentPanel: View {
+    @Binding var keyWidthScale: Double
+    @Binding var outputVolume: Double
+    let onKeyWidthEditingChanged: (Bool) -> Void
+
+    var body: some View {
+        VStack(spacing: 10) {
+            KeyWidthSlider(value: $keyWidthScale, onEditingChanged: onKeyWidthEditingChanged)
+            VolumeSlider(value: $outputVolume)
+        }
+        .padding(10)
+        .background(AppColors.panelSurface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(AppColors.whiteKeyBorder.opacity(0.5), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.28), radius: 16, y: 8)
+    }
+}
+
 private struct KeyWidthSlider: View {
     @Binding var value: Double
     let onEditingChanged: (Bool) -> Void
@@ -183,6 +265,31 @@ private struct KeyWidthSlider: View {
         .padding(.vertical, 8)
         .background(AppColors.controlSurface, in: RoundedRectangle(cornerRadius: 8))
         .accessibilityLabel("Key width")
+    }
+}
+
+private struct VolumeSlider: View {
+    @Binding var value: Double
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "speaker.wave.1")
+                .font(.caption.weight(.bold))
+                .frame(width: 22, height: 22)
+
+            Slider(value: $value, in: 0...1)
+                .tint(AppColors.controlAccent)
+
+            Text("\(Int((value * 100).rounded()))")
+                .font(.system(size: 12, weight: .bold, design: .rounded))
+                .monospacedDigit()
+                .frame(width: 34, alignment: .trailing)
+        }
+        .foregroundStyle(AppColors.secondaryText)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(AppColors.controlSurface, in: RoundedRectangle(cornerRadius: 8))
+        .accessibilityLabel("Volume")
     }
 }
 
@@ -1290,7 +1397,13 @@ private final class PianoAudioEngine: ObservableObject {
     private let bufferCacheLock = NSLock()
     private let samplePianoLibrary = PianoSampleLibrary()
     private let synthReleaseDuration = 0.1
+    private var outputVolume: Float = 1
     private var isSessionPrepared = false
+
+    func setOutputVolume(_ volume: Double) {
+        outputVolume = Float(min(max(volume, 0), 1))
+        engine.mainMixerNode.outputVolume = outputVolume
+    }
 
     func prepareSession(transpose: Int? = nil, a4Frequency: Int? = nil) {
         guard !isSessionPrepared else {
@@ -1303,6 +1416,7 @@ private final class PianoAudioEngine: ObservableObject {
 
         configureAudioSession()
         prepareVoicePool()
+        engine.mainMixerNode.outputVolume = outputVolume
         engine.prepare()
         ensureEngineIsRunning()
         primeOutputRoute()
@@ -1954,6 +2068,7 @@ private enum AppColors {
     static let controlAccent = Color(red: 0.34, green: 0.72, blue: 0.63)
     static let controlNeutral = Color(red: 0.28, green: 0.34, blue: 0.33)
     static let controlSurface = Color(red: 0.11, green: 0.13, blue: 0.13).opacity(0.94)
+    static let panelSurface = Color(red: 0.075, green: 0.09, blue: 0.09).opacity(0.98)
     static let controlInset = Color.white.opacity(0.07)
     static let keyLabel = Color(red: 0.27, green: 0.31, blue: 0.30)
     static let whiteKey = Color(red: 0.99, green: 0.985, blue: 0.96)

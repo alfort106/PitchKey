@@ -26,7 +26,7 @@ struct ContentView: View {
         GeometryReader { geometry in
             let isLandscape = geometry.size.width > geometry.size.height
             let portraitKeyboardHeight = min(geometry.size.height * 0.48, max(260, geometry.size.height - 330))
-            let topPadding: CGFloat = isLandscape ? 12 : 70
+            let topPadding: CGFloat = isLandscape ? 27 : 85
             let bottomBreathingRoom: CGFloat = isLandscape ? 12 : 28
 
             ZStack(alignment: .top) {
@@ -1461,7 +1461,7 @@ private final class PianoAudioEngine: ObservableObject {
         let session = AVAudioSession.sharedInstance()
 
         do {
-            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            try session.setCategory(.ambient, mode: .default, options: [.mixWithOthers])
             try session.setActive(true)
         } catch {
             print("Audio session failed: \(error.localizedDescription)")
